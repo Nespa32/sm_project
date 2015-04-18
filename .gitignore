@@ -1,0 +1,8 @@
+Debug/*
+cap_wordcloud/Debug/*
+Release/*
+cap_wordcloud/Release/*
+*.sdf
+*.suo
+*.opensdf
+ipch/*
