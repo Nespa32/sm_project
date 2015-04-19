@@ -1,0 +1,17 @@
+
+'cap_wordcloud' - an unoriginal attempt to combine 'sound capture' and 'wordclouds'
+
+What you'll need:
+- FLAC (https://xiph.org/flac/download.html)
+- Nasm (because of FLAC - http://www.nasm.us/)
+- Ogg (because of FLAC - https://xiph.org/downloads/)
+- A lot of patience (no link for this)
+
+How to setup:
+
+After you've got FLAC somewhere on the system, copy libFLAC_dynamic.lib and libFLAC++_dynamic.lib
+to include\lib\ (lib\ might not exist yet, create it)
+Open the cap_wordcloud.sln, then Build|Build Solution, hope for the best
+After that's (hopefully) done, the executable in Debug/ (or Release/) can't run yet. Add libFLAC_dynamic.dll
+and libFLAC++_dynamic.dll to the folder.
+
