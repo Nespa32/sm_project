@@ -12,30 +12,37 @@
 
 #include <cstdlib>
 
+/* audio settings */
 int NUM_CHANNELS = 1; // mono audio (stereo would need 2 channels)
 int SAMPLES_PER_SEC = 11025;
 int BITS_PER_SAMPLE = 8;
 
-#define INP_BUFFER_SIZE SAMPLES_PER_SEC * 10
-
-/* Declare procedures */
+void CaptureSoundFor(int secs);
 void SaveWavFile(char* filename, PWAVEHDR pWaveHdr);
 void ReadWavFile(char* filename);
 
 int main(int /*argc*/, char** /*argv*/)
 {
-    printf("test\n");
+    CaptureSoundFor(10);
+    return 0;
+}
+
+void CaptureSoundFor(int secs)
+{
+    assert(secs > 0);
+
+    int bufferSize = SAMPLES_PER_SEC * secs;
 
     WAVEHDR waveHdr;
     PBYTE buffer;
     HWAVEIN hWaveIn;
 
     /* begin sound capture */
-    buffer = reinterpret_cast<PBYTE>(malloc(INP_BUFFER_SIZE));
+    buffer = (PBYTE)malloc(bufferSize);
     if (!buffer)
     {
         printf("Failed to allocate buffers\n");
-        return 1;
+        assert(false);
     }
 
     // Open waveform audio for input
@@ -48,24 +55,17 @@ int main(int /*argc*/, char** /*argv*/)
     waveform.wBitsPerSample = BITS_PER_SAMPLE;
     waveform.cbSize = 0;
 
-    MMRESULT result = waveInOpen(&hWaveIn, WAVE_MAPPER, &waveform, NULL, NULL, CALLBACK_WINDOW);
+    MMRESULT result = waveInOpen(&hWaveIn, WAVE_MAPPER, &waveform, NULL, NULL, CALLBACK_NULL);
 
     if (result)
     {
-        // todo: properly print this error - WCHAR is unicode garbage
-        /*
-        WCHAR fault[256];
-        waveInGetErrorText(result, fault, 256);
-        printf("Failed to open waveform input device (fault: %s)", result);
-        */
-
         printf("Failed to open waveform input device\n", result);
-        return 1;
+        assert(false);
     }
 
     // Set up headers and prepare them
     waveHdr.lpData = reinterpret_cast<CHAR*>(buffer);
-    waveHdr.dwBufferLength = INP_BUFFER_SIZE;
+    waveHdr.dwBufferLength = bufferSize;
     waveHdr.dwBytesRecorded = 0;
     waveHdr.dwUser = 0;
     waveHdr.dwFlags = 0;
@@ -80,7 +80,7 @@ int main(int /*argc*/, char** /*argv*/)
     if (result)
     {
         printf("Failed to read block from device\n");
-        return 1;
+        assert(false);
     }
 
     // Commence sampling input
@@ -88,17 +88,16 @@ int main(int /*argc*/, char** /*argv*/)
     if (result)
     {
         printf("Failed to start recording\n");
-        return 1;
+        assert(false);
     }
 
     // Wait until finished recording
-    do { } while (waveInUnprepareHeader(hWaveIn, &waveHdr, sizeof(WAVEHDR)) == WAVERR_STILLPLAYING);
+    while (waveInUnprepareHeader(hWaveIn, &waveHdr, sizeof(WAVEHDR)) == WAVERR_STILLPLAYING)
+        ;
 
     waveInClose(hWaveIn);
 
     SaveWavFile("temp.wav", &waveHdr);
-
-    return 0;
 }
 
 // Read the temporary wav file
@@ -106,63 +105,74 @@ void ReadWavFile(char* filename)
 {
     // random variables used throughout the function
     int length, byte_samp, byte_sec;
-    bool mono = TRUE;
 
     FILE* file;
     // open filepointer readonly
     fopen_s(&file, filename, "r");
     if (file == NULL)
-        printf("Wav:: Could not open file: %s", filename);
-    else
     {
-        // declare a char buff to store some values in
-        char *buff = new char[5];
-        buff[4] = '\0';
-        // read the first 4 bytes
-        fread((void *)buff, 1, 4, file);
-        // the first four bytes should be 'RIFF'
-        if (strcmp((char *)buff, "RIFF") == 0)
-        {
-            // read byte 8,9,10 and 11
-            fseek(file, 4, SEEK_CUR);
-            fread((void *)buff, 1, 4, file);
-            // this should read "WAVE"
-            if (strcmp((char *)buff, "WAVE") == 0)
-            {
-                // read byte 12,13,14,15
-                fread((void *)buff, 1, 4, file);
-                // this should read "fmt "
-                if (strcmp((char *)buff, "fmt ") == 0)
-                {
-                    fseek(file, 20, SEEK_CUR);
-                    // final one read byte 36,37,38,39
-                    fread((void *)buff, 1, 4, file);
-                    if (strcmp((char *)buff, "data") == 0)
-                    {
-                        // Now we know it is a wav file, rewind the stream
-                        rewind(file);
-                        // now is it mono or stereo ?
-                        fseek(file, 22, SEEK_CUR);
-                        fread((void *)buff, 1, 2, file);
-
-                        // bool isMono = (buff[0] & 0x02 == 0);
-
-                        // read the sample rate
-                        fread((void *)&SAMPLES_PER_SEC, 1, 4, file);
-                        fread((void *)&byte_sec, 1, 4, file);
-                        byte_samp = 0;
-                        fread((void *)&byte_samp, 1, 2, file);
-
-                        fread((void *)&BITS_PER_SAMPLE, 1, 2, file);
-                        fseek(file, 4, SEEK_CUR);
-                        fread((void *)&length, 1, 4, file);
-                    }
-                }
-            }
-        }
-
-        delete buff;
+        printf("Wav:: Could not open file: %s", filename);
+        return;
     }
+
+    // declare a char buff to store some values in
+    char buff[5];
+    buff[4] = '\0';
+
+    // read the first 4 bytes
+    fread((void*)buff, 1, 4, file);
+
+    // the first four bytes should be 'RIFF'
+    if (strcmp((char*)buff, "RIFF") != 0)
+    {
+        printf("ReadWavFile:: incorrect file format? First four bytes not 'RIFF'");
+        return;
+    }
+
+    // read byte 8,9,10 and 11
+    fseek(file, 4, SEEK_CUR);
+    fread((void *)buff, 1, 4, file);
+    // this should read "WAVE"
+    if (strcmp((char *)buff, "WAVE") != 0)
+    {
+        printf("ReadWavFile:: incorrect file format? Could not read 'WAVE'");
+        return;
+    }
+
+    // read byte 12,13,14,15
+    fread((void *)buff, 1, 4, file);
+    // this should read "fmt "
+    if (strcmp((char *)buff, "fmt ") != 0)
+    {
+        printf("ReadWavFile:: incorrect file format? Could not read 'fmt '");
+        return;
+    }
+
+    fseek(file, 20, SEEK_CUR);
+    // final one read byte 36,37,38,39
+    fread((void *)buff, 1, 4, file);
+    if (strcmp((char *)buff, "data") != 0)
+    {
+        printf("ReadWavFile:: incorrect file format? Could not read 'data'");
+        return;
+    }
+
+    // Now we know it is a wav file, rewind the stream
+    rewind(file);
+    // now is it mono or stereo ?
+    fseek(file, 22, SEEK_CUR);
+    fread((void *)buff, 1, 2, file);
+
+    // bool isMono = (buff[0] & 0x02 == 0);
+
+    // read the sample rate
+    fread((void *)&SAMPLES_PER_SEC, 1, 4, file);
+    fread((void *)&byte_sec, 1, 4, file);
+    fread((void *)&byte_samp, 1, 2, file);
+
+    fread((void *)&BITS_PER_SAMPLE, 1, 2, file);
+    fseek(file, 4, SEEK_CUR);
+    fread((void *)&length, 1, 4, file);
 }
 
 void SaveWavFile(char* filename, PWAVEHDR pWaveHdr)
