@@ -2,6 +2,7 @@ Debug/*
 cap_wordcloud/Debug/*
 Release/*
 cap_wordcloud/Release/*
+include/lib/*
 *.sdf
 *.suo
 *.opensdf

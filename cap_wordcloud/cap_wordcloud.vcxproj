@@ -51,11 +51,12 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>WinMM.Lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>WinMM.Lib;..\include\lib\libFLAC_static.lib;..\include\lib\libFLAC++_static.lib;..\include\lib\libogg_static.lib;..\include\lib\utf8_static.lib;..\include\lib\win_utf8_io_static.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
