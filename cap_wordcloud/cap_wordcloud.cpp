@@ -12,14 +12,23 @@
 
 #include <cstdlib>
 
+#include "FLAC++/encoder.h"
+#include "FLAC/stream_encoder.h"
+
 /* audio settings */
-int NUM_CHANNELS = 1; // mono audio (stereo would need 2 channels)
-int SAMPLES_PER_SEC = 11025;
-int BITS_PER_SAMPLE = 8;
+int const NUM_CHANNELS = 1; // mono audio (stereo would need 2 channels)
+int const SAMPLES_PER_SEC = 16000;
+int const BITS_PER_SAMPLE = 16;
+int const BYTE_PER_SAMPLE = BITS_PER_SAMPLE / 8;
+int const BLOCK_ALIGN = NUM_CHANNELS * BITS_PER_SAMPLE / 8;
 
 void CaptureSoundFor(int secs);
 void SaveWavFile(char* filename, PWAVEHDR pWaveHdr);
 void ReadWavFile(char* filename);
+
+// FLAC
+void ConvertWavToFlac(const char* wavfile, const char* flacfile);
+static void FlacProgressCallback(const FLAC__StreamEncoder* encoder, FLAC__uint64 bytes_written, FLAC__uint64 samples_written, unsigned frames_written, unsigned total_frames_estimate, void* client_data);
 
 int main(int /*argc*/, char** /*argv*/)
 {
@@ -51,7 +60,7 @@ void CaptureSoundFor(int secs)
     waveform.nChannels = NUM_CHANNELS;
     waveform.nSamplesPerSec = SAMPLES_PER_SEC;
     waveform.nAvgBytesPerSec = SAMPLES_PER_SEC;
-    waveform.nBlockAlign = 1;
+    waveform.nBlockAlign = BLOCK_ALIGN;
     waveform.wBitsPerSample = BITS_PER_SAMPLE;
     waveform.cbSize = 0;
 
@@ -98,6 +107,8 @@ void CaptureSoundFor(int secs)
     waveInClose(hWaveIn);
 
     SaveWavFile("temp.wav", &waveHdr);
+
+    ConvertWavToFlac("temp.wav", "temp.flac");
 }
 
 // Read the temporary wav file
@@ -108,7 +119,7 @@ void ReadWavFile(char* filename)
 
     FILE* file;
     // open filepointer readonly
-    fopen_s(&file, filename, "r");
+    fopen_s(&file, filename, "rb");
     if (file == NULL)
     {
         printf("Wav:: Could not open file: %s", filename);
@@ -184,7 +195,7 @@ void SaveWavFile(char* filename, PWAVEHDR pWaveHdr)
 
     int subchunk1size = 16;
     int byteRate = SAMPLES_PER_SEC * NUM_CHANNELS * BITS_PER_SAMPLE / 8;
-    int blockAlign = NUM_CHANNELS * BITS_PER_SAMPLE / 8;
+    int blockAlign = BLOCK_ALIGN;
     int subchunk2size = pWaveHdr->dwBufferLength * NUM_CHANNELS;
     int chunksize = (36 + subchunk2size);
     // write the wav file per the wav file format
@@ -205,4 +216,111 @@ void SaveWavFile(char* filename, PWAVEHDR pWaveHdr)
 
     file.write(pWaveHdr->lpData, pWaveHdr->dwBufferLength); // data
     file.close();
+}
+
+static unsigned totalSamples = 0; /* can use a 32-bit number due to WAVE size limitations */
+
+void ConvertWavToFlac(const char* wavfile, const char* flacfile)
+{
+    FLAC__StreamEncoder* encoder = 0;
+    FLAC__StreamEncoderInitStatus initStatus;
+
+    FILE* file;
+    fopen_s(&file, wavfile, "rb");
+
+    if (file == NULL)
+    {
+        printf("ConvertWavToFlac:: couldn't open input file\n", wavfile);
+        return;
+    }
+
+    int const READ_BUFFER_SIZE = 4096;
+    FLAC__byte buffer[READ_BUFFER_SIZE * BYTE_PER_SAMPLE * NUM_CHANNELS]; /* we read the WAVE data into here */
+    FLAC__int32 pcm[READ_BUFFER_SIZE * NUM_CHANNELS];
+
+    // some consistency checks on the string fields of the file
+    if (fread(buffer, 1, 44, file) != 44 ||
+        memcmp(buffer, "RIFF", 4) ||
+        memcmp(buffer + 8, "WAVE", 4) ||
+        memcmp(buffer + 12, "fmt ", 4) ||
+        memcmp(buffer + 36, "data", 4))
+    {
+        printf("ConvertWavToFlac:: file %s doesn't look like a wav file", wavfile);
+        fclose(file);
+        return;
+    }
+
+    // @todo: find better way to read this value, this looks ugly
+    totalSamples = (((((((unsigned)buffer[43] << 8) | buffer[42]) << 8) | buffer[41]) << 8) | buffer[40]) / BYTE_PER_SAMPLE;
+
+    /* allocate the encoder */
+    encoder = FLAC__stream_encoder_new();
+    if (encoder == NULL)
+    {
+        printf("ConvertWavToFlac:: couldn't allocate encoder\n");
+        fclose(file);
+        return;
+    }
+
+    FLAC__bool ok = true;
+    ok &= FLAC__stream_encoder_set_verify(encoder, true);
+    ok &= FLAC__stream_encoder_set_compression_level(encoder, 5);
+    ok &= FLAC__stream_encoder_set_channels(encoder, NUM_CHANNELS);
+    ok &= FLAC__stream_encoder_set_bits_per_sample(encoder, BITS_PER_SAMPLE);
+    ok &= FLAC__stream_encoder_set_sample_rate(encoder, SAMPLES_PER_SEC);
+    ok &= FLAC__stream_encoder_set_total_samples_estimate(encoder, totalSamples);
+
+    /* initialize encoder */
+    if (ok)
+    {
+        initStatus = FLAC__stream_encoder_init_file(encoder, flacfile, FlacProgressCallback, nullptr);
+        if (initStatus != FLAC__STREAM_ENCODER_INIT_STATUS_OK)
+        {
+            printf("ConvertWavToFlac:: error while initializing encoder: %s\n", FLAC__StreamEncoderInitStatusString[initStatus]);
+            ok = false;
+        }
+    }
+
+    /* read blocks of samples from WAVE file and feed to encoder */
+    if (ok)
+    {
+        size_t left = (size_t)totalSamples;
+        while (ok && left)
+        {
+            size_t need = (left > READ_BUFFER_SIZE ? (size_t)READ_BUFFER_SIZE : (size_t)left);
+            if (fread(buffer, NUM_CHANNELS * (BITS_PER_SAMPLE / 8), need, file) != need)
+            {
+                printf("ConvertWavToFlac:: error reading from WAVE file\n");
+                ok = false;
+            }
+            else
+            {
+                /* convert the packed little-endian 16-bit PCM samples from WAVE into an interleaved FLAC__int32 buffer for libFLAC */
+                size_t i;
+                for (i = 0; i < need * NUM_CHANNELS; i++)
+                    /* inefficient but simple and works on big- or little-endian machines */
+                    pcm[i] = (FLAC__int32)(((FLAC__int16)(FLAC__int8)buffer[2 * i + 1] << 8) | (FLAC__int16)buffer[2 * i]);
+
+                /* feed samples to encoder */
+                ok = FLAC__stream_encoder_process_interleaved(encoder, pcm, need);
+            }
+            left -= need;
+        }
+    }
+
+    ok &= FLAC__stream_encoder_finish(encoder);
+
+    printf("ConvertWavToFlac:: %s\n", ok ? "Success" : "FAILED");
+    if (!ok)
+        printf("* State: %s\n", FLAC__StreamEncoderStateString[FLAC__stream_encoder_get_state(encoder)]);
+
+    FLAC__stream_encoder_delete(encoder);
+    fclose(file);
+}
+
+void FlacProgressCallback(FLAC__StreamEncoder const* /*encoder*/, FLAC__uint64 bytes_written,
+    FLAC__uint64 samples_written, unsigned frames_written, unsigned total_frames_estimate, void* /*client_data*/)
+{
+    printf("FlacProgressCallback:: Wrote %llu bytes, %llu/%u samples, %u/%u frames\n",
+        bytes_written, samples_written, totalSamples, frames_written, total_frames_estimate);
 }
