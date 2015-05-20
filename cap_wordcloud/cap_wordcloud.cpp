@@ -16,31 +16,42 @@
 #include "FLAC/stream_encoder.h"
 
 /* audio settings */
+// from https://msdn.microsoft.com/en-us/library/aa908934.aspx
 int const NUM_CHANNELS = 1; // mono audio (stereo would need 2 channels)
 int const SAMPLES_PER_SEC = 16000;
 int const BITS_PER_SAMPLE = 16;
 int const BYTE_PER_SAMPLE = BITS_PER_SAMPLE / 8;
-int const BLOCK_ALIGN = NUM_CHANNELS * BITS_PER_SAMPLE / 8;
+int const BLOCK_ALIGN = NUM_CHANNELS * BYTE_PER_SAMPLE;
+int const BYTE_RATE = SAMPLES_PER_SEC * BLOCK_ALIGN;
 
-void CaptureSoundFor(int secs);
-void SaveWavFile(char* filename, PWAVEHDR pWaveHdr);
-void ReadWavFile(char* filename);
+void CaptureSoundFor(int secs, std::string destfile);
+void SaveWavFile(std::string filename, PWAVEHDR pWaveHdr);
+void ReadWavFile(std::string filename);
 
 // FLAC
-void ConvertWavToFlac(const char* wavfile, const char* flacfile);
+void ConvertWavToFlac(std::string wavfile, std::string flacfile);
 static void FlacProgressCallback(const FLAC__StreamEncoder* encoder, FLAC__uint64 bytes_written, FLAC__uint64 samples_written, unsigned frames_written, unsigned total_frames_estimate, void* client_data);
 
-int main(int /*argc*/, char** /*argv*/)
+int main(int argc, char** argv)
 {
-    CaptureSoundFor(10);
+    if (argc < 3)
+    {
+        fprintf(stderr, "Missing args. Synthax: cap_wordcloud.exe $duration $destfile");
+        return 1;
+    }
+
+    int duration = atoi(argv[1]);
+    std::string destfile = argv[2];
+    CaptureSoundFor(duration, destfile);
     return 0;
 }
 
-void CaptureSoundFor(int secs)
+void CaptureSoundFor(int secs, std::string destfile)
 {
     assert(secs > 0);
 
-    int bufferSize = SAMPLES_PER_SEC * secs;
+    int bufferSize = SAMPLES_PER_SEC * BYTE_PER_SAMPLE * NUM_CHANNELS * secs;
+    printf("bufferSize is %d\n", bufferSize);
 
     WAVEHDR waveHdr;
     PBYTE buffer;
@@ -59,7 +70,7 @@ void CaptureSoundFor(int secs)
     waveform.wFormatTag = WAVE_FORMAT_PCM;
     waveform.nChannels = NUM_CHANNELS;
     waveform.nSamplesPerSec = SAMPLES_PER_SEC;
-    waveform.nAvgBytesPerSec = SAMPLES_PER_SEC;
+    waveform.nAvgBytesPerSec = BYTE_RATE;
     waveform.nBlockAlign = BLOCK_ALIGN;
     waveform.wBitsPerSample = BITS_PER_SAMPLE;
     waveform.cbSize = 0;
@@ -100,15 +111,24 @@ void CaptureSoundFor(int secs)
         assert(false);
     }
 
+    time_t startTime = time(NULL);
+
     // Wait until finished recording
     while (waveInUnprepareHeader(hWaveIn, &waveHdr, sizeof(WAVEHDR)) == WAVERR_STILLPLAYING)
         ;
 
+    time_t endTime = time(NULL);
+
+    int timeDiff = int(endTime - startTime);
+    if (secs != timeDiff)
+        printf("WARNING: requested capture time (%d) is different from real capture time (%d)", secs, timeDiff);
+
     waveInClose(hWaveIn);
 
-    SaveWavFile("temp.wav", &waveHdr);
+    SaveWavFile(destfile, &waveHdr);
 
-    ConvertWavToFlac("temp.wav", "temp.flac");
+    // SaveWavFile("temp.wav", &waveHdr);
+    // ConvertWavToFlac("temp.wav", destfile);
 }
 
 // Read the temporary wav file
@@ -186,7 +206,7 @@ void ReadWavFile(char* filename)
     fread((void *)&length, 1, 4, file);
 }
 
-void SaveWavFile(char* filename, PWAVEHDR pWaveHdr)
+void SaveWavFile(std::string filename, PWAVEHDR pWaveHdr)
 {
     std::fstream file(filename, std::fstream::out | std::fstream::binary);
 
@@ -194,8 +214,6 @@ void SaveWavFile(char* filename, PWAVEHDR pWaveHdr)
     int audioFormat = WAVE_FORMAT_PCM;
 
     int subchunk1size = 16;
-    int byteRate = SAMPLES_PER_SEC * NUM_CHANNELS * BITS_PER_SAMPLE / 8;
-    int blockAlign = BLOCK_ALIGN;
     int subchunk2size = pWaveHdr->dwBufferLength * NUM_CHANNELS;
     int chunksize = (36 + subchunk2size);
     // write the wav file per the wav file format
@@ -208,10 +226,11 @@ void SaveWavFile(char* filename, PWAVEHDR pWaveHdr)
     file.write((char*)&audioFormat, 2);         // AudioFormat (1 for PCM)
     file.write((char*)&NUM_CHANNELS, 2);        // NumChannels
     file.write((char*)&SAMPLES_PER_SEC, 4);     // sample rate
-    file.write((char*)&byteRate, 4);            // byte rate (SampleRate * NumChannels * BitsPerSample/8)
-    file.write((char*)&blockAlign, 2);          // block align (NumChannels * BitsPerSample/8)
+    file.write((char*)&BYTE_RATE, 4);           // byte rate (SampleRate * NumChannels * BitsPerSample/8)
+    file.write((char*)&BLOCK_ALIGN, 2);         // block align (NumChannels * BitsPerSample/8)
     file.write((char*)&BITS_PER_SAMPLE, 2);     // bits per sample
     file.write("data", 4);                      // subchunk2ID
+    printf("subchunk2size is %d\n", subchunk2size);
     file.write((char*)&subchunk2size, 4);       // subchunk2size (NumSamples * NumChannels * BitsPerSample/8)
 
     file.write(pWaveHdr->lpData, pWaveHdr->dwBufferLength); // data
@@ -220,13 +239,13 @@ void SaveWavFile(char* filename, PWAVEHDR pWaveHdr)
 
 static unsigned totalSamples = 0; /* can use a 32-bit number due to WAVE size limitations */
 
-void ConvertWavToFlac(const char* wavfile, const char* flacfile)
+void ConvertWavToFlac(std::string wavfile, std::string flacfile)
 {
     FLAC__StreamEncoder* encoder = 0;
     FLAC__StreamEncoderInitStatus initStatus;
 
     FILE* file;
-    fopen_s(&file, wavfile, "rb");
+    fopen_s(&file, wavfile.c_str(), "rb");
 
     if (file == NULL)
     {
@@ -273,7 +292,7 @@ void ConvertWavToFlac(const char* wavfile, const char* flacfile)
     /* initialize encoder */
     if (ok)
     {
-        initStatus = FLAC__stream_encoder_init_file(encoder, flacfile, FlacProgressCallback, nullptr);
+        initStatus = FLAC__stream_encoder_init_file(encoder, flacfile.c_str(), FlacProgressCallback, nullptr);
         if (initStatus != FLAC__STREAM_ENCODER_INIT_STATUS_OK)
         {
             printf("ConvertWavToFlac:: error while initializing encoder: %s\n", FLAC__StreamEncoderInitStatusString[initStatus]);
