@@ -7,3 +7,7 @@ sound_capture/ipch/*
 *.sdf
 *.suo
 *.opensdf
+build/raw_text.txt
+build/text_cache.txt
+build/text_feed.txt
+build/wordcloud_text.txt
