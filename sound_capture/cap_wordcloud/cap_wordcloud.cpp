@@ -59,7 +59,6 @@ void CaptureSoundFor(int secs, std::string destfile)
     assert(secs > 0);
 
     int bufferSize = SAMPLES_PER_SEC * BYTE_PER_SAMPLE * NUM_CHANNELS * secs;
-    printf("bufferSize is %d\n", bufferSize);
 
     WAVEHDR waveHdr;
     PBYTE buffer;
@@ -240,7 +239,6 @@ void SaveWavFile(std::string filename, PWAVEHDR pWaveHdr)
     file.write((char*)&BLOCK_ALIGN, 2);         // block align (NumChannels * BitsPerSample/8)
     file.write((char*)&BITS_PER_SAMPLE, 2);     // bits per sample
     file.write("data", 4);                      // subchunk2ID
-    printf("subchunk2size is %d\n", subchunk2size);
     file.write((char*)&subchunk2size, 4);       // subchunk2size (NumSamples * NumChannels * BitsPerSample/8)
 
     file.write(pWaveHdr->lpData, pWaveHdr->dwBufferLength); // data
