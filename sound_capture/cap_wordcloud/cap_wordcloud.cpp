@@ -12,8 +12,13 @@
 
 #include <cstdlib>
 
+// define to enable flac (if you're crazy enough)
+// #define __USE_FLAC__
+
+#ifdef __USE_FLAC__
 #include "FLAC++/encoder.h"
 #include "FLAC/stream_encoder.h"
+#endif
 
 /* audio settings */
 // from https://msdn.microsoft.com/en-us/library/aa908934.aspx
@@ -30,7 +35,10 @@ void ReadWavFile(std::string filename);
 
 // FLAC
 void ConvertWavToFlac(std::string wavfile, std::string flacfile);
+
+#ifdef __USE_FLAC__
 static void FlacProgressCallback(const FLAC__StreamEncoder* encoder, FLAC__uint64 bytes_written, FLAC__uint64 samples_written, unsigned frames_written, unsigned total_frames_estimate, void* client_data);
+#endif
 
 int main(int argc, char** argv)
 {
@@ -127,8 +135,10 @@ void CaptureSoundFor(int secs, std::string destfile)
 
     SaveWavFile(destfile, &waveHdr);
 
-    // SaveWavFile("temp.wav", &waveHdr);
-    // ConvertWavToFlac("temp.wav", destfile);
+#ifdef __USE_FLAC__
+    SaveWavFile("temp.wav", &waveHdr);
+    ConvertWavToFlac("temp.wav", destfile);
+#endif
 }
 
 // Read the temporary wav file
@@ -237,6 +247,7 @@ void SaveWavFile(std::string filename, PWAVEHDR pWaveHdr)
     file.close();
 }
 
+#ifdef __USE_FLAC__
 static unsigned totalSamples = 0; /* can use a 32-bit number due to WAVE size limitations */
 
 void ConvertWavToFlac(std::string wavfile, std::string flacfile)
@@ -343,3 +354,5 @@ void FlacProgressCallback(FLAC__StreamEncoder const* /*encoder*/, FLAC__uint64 b
     printf("FlacProgressCallback:: Wrote %llu bytes, %llu/%u samples, %u/%u frames\n",
         bytes_written, samples_written, totalSamples, frames_written, total_frames_estimate);
 }
+
+#endif // __USE_FLAC__
