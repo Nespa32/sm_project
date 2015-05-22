@@ -12,7 +12,7 @@ cat a_new_hope.txt > text_feed.txt
 echo "" > text_cache.txt
 echo "empty" > wordcloud_text.txt
 
-python $WORDCLOUD_GEN_DIR/tkinter_test.py wordcloud_text.txt &
+# python $WORDCLOUD_GEN_DIR/tkinter_test.py wordcloud_text.txt &
 
 while true; do
     echo "STAGE: SOUND CAPTURE"
@@ -55,7 +55,9 @@ while true; do
     echo "STAGE: TEXT PRE-PROCESSING"
 
     # text_preprocess.py $input_file
-    python $TEXT_PROCESSING_DIR/text_preprocess.py raw_text.txt text_cache.txt > wordcloud_text.txt
+    # python $TEXT_PROCESSING_DIR/text_preprocess.py raw_text.txt text_cache.txt > wordcloud_text.txt
+    # TextProcessor needs to be in the same folder, because of java classpath issues
+    java TextProcessor raw_text.txt text_cache.txt > wordcloud_text.txt
 
     echo "STAGE: WORDCLOUD GEN"
 

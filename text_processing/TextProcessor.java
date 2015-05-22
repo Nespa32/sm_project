@@ -1,4 +1,4 @@
-package javaapplication21;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.FileReader;
@@ -9,10 +9,10 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class JavaApplication21 {
+public class TextProcessor {
 
     public static void main(String[] args) throws Exception {
-
+        
         Map<String, Integer> mapPalavras;
         mapPalavras = new HashMap<String, Integer>();
 
