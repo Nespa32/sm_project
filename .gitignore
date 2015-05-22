@@ -7,6 +7,8 @@ sound_capture/ipch/*
 *.sdf
 *.suo
 *.opensdf
+build/*.json
+build/*.wav
 build/raw_text.txt
 build/text_cache.txt
 build/text_feed.txt
