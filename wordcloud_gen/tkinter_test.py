@@ -9,6 +9,16 @@ import struct
 from PIL import Image, ImageTk
 import sys
 
+from datetime import datetime
+
+start_time = datetime.now()
+
+# returns the elapsed milliseconds since the start of the program
+def getMsTime():
+   dt = datetime.now() - start_time
+   ms = (dt.days * 24 * 60 * 60 + dt.seconds) * 1000 + dt.microseconds / 1000.0
+   return ms
+
 def main():
     global screensize
     global master
@@ -49,19 +59,6 @@ def putImageOnCanvas(img):
     global image_ref # used to keep python's GC from screwing with our images
     image_ref = ImageTk.PhotoImage(img)
     canvas.create_image((screensize[0]/2, screensize[1]/2), image=image_ref, state="normal")
-    
-def DoShit():
-    print "Actual DoShit call"
-    global old_wc
-    wc_img = generateImage()
-    (x, y) = old_wc
-    old_wc = (x, wc_img)
-    
-    
-    putImageOnCanvas(old_wc[0])
-    master.after(4000, DoShit2)
-    
-alpha = 0.0
 
 def doUpdate(oldImg):
     newImg = generateImage()
@@ -69,6 +66,7 @@ def doUpdate(oldImg):
     master.after(1, doImageTransition, (oldImg, newImg), 0.0)
 
 def doImageTransition((oldImg, newImg), alpha):
+    # print getMsTime()
     img = Image.blend(oldImg, newImg, alpha)
     putImageOnCanvas(img)
     
