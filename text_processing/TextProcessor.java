@@ -53,7 +53,7 @@ public class TextProcessor {
 
         for (Map.Entry<String, Integer> entry : mapPalavras.entrySet()) {
 
-            if (entry.getValue() > 1) {
+            // if (entry.getValue() > 1) {
 
                 for (int i = 0; i < (entry.getValue()); i++) {
 
@@ -63,7 +63,7 @@ public class TextProcessor {
 
                 }
 
-            }
+            //}
 
         }
 
