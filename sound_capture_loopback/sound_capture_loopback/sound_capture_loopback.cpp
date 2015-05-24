@@ -6,26 +6,14 @@
 
 #include <time.h>
 
+// device property defines
 #include <functiondiscoverykeys_devpkey.h>
-
-class CPrefs {
-public:
-    IMMDevice *m_pMMDevice;
-    HMMIO m_hFile;
-    PWAVEFORMATEX m_pwfx;
-    LPCWSTR m_szFilename;
-
-    // set hr to S_FALSE to abort but return success
-    CPrefs(int argc, LPCWSTR argv[], HRESULT &hr);
-    ~CPrefs();
-
-};
 
 // from loopback capture
 #include <audioclient.h>
 #include <avrt.h>
 
-/* audio settings */
+/* audio settings that we want */
 // from https://msdn.microsoft.com/en-us/library/aa908934.aspx
 int const NUM_CHANNELS = 2; // mono audio (stereo would need 2 channels)
 int const SAMPLES_PER_SEC = 16000;
@@ -34,20 +22,29 @@ int const BYTE_PER_SAMPLE = BITS_PER_SAMPLE / 8;
 int const BLOCK_ALIGN = NUM_CHANNELS * BYTE_PER_SAMPLE;
 int const BYTE_RATE = SAMPLES_PER_SEC * BLOCK_ALIGN;
 
+struct ProgramOptionsHolder
+{
+    IMMDevice* _mmDevice;
+    HMMIO _file;
+    PWAVEFORMATEX _waveformat;
+    LPCWSTR _filename;
+    UINT32 _period;
+
+    // set hr to S_FALSE to abort but return success
+    ProgramOptionsHolder(int argc, LPCWSTR argv[], HRESULT& hr);
+    ~ProgramOptionsHolder();
+};
+
 int do_everything(int argc, LPCWSTR argv[]);
-HRESULT LoopbackCapture(IMMDevice *pMMDevice, HMMIO hFile, PUINT32 pnFrames);
+UINT32 LoopbackCapture(IMMDevice* mmDevice, HMMIO file, int secs);
 
-HRESULT WriteWaveHeader(HMMIO hFile, LPCWAVEFORMATEX pwfx, MMCKINFO *pckRIFF, MMCKINFO *pckData);
-HRESULT FinishWaveFile(HMMIO hFile, MMCKINFO *pckRIFF, MMCKINFO *pckData);
+HRESULT WriteWaveHeader(HMMIO file, LPCWAVEFORMATEX pwfx, MMCKINFO* packetRIFF, MMCKINFO* packetData);
+HRESULT FinishWaveFile(HMMIO file, MMCKINFO* packetRIFF, MMCKINFO* packetData);
 
-int _cdecl wmain(int argc, LPCWSTR argv[]) {
-
+int _cdecl wmain(int argc, LPCWSTR argv[])
+{
     // initialize COM library
-    HRESULT hr = CoInitialize(NULL);
-    if (FAILED(hr)) {
-        printf("CoInitialize failed: hr = %u", hr);
-        return -__LINE__;
-    }
+    HRESULT hr = CoInitialize(nullptr);
 
     int result = do_everything(argc, argv);
 
@@ -55,13 +52,14 @@ int _cdecl wmain(int argc, LPCWSTR argv[]) {
     return result;
 }
 
-int do_everything(int argc, LPCWSTR argv[]) {
-
+int do_everything(int argc, LPCWSTR argv[])
+{
     HRESULT hr = S_OK;
 
     // parse command line
-    CPrefs prefs(argc, argv, hr);
-    if (FAILED(hr)) {
+    ProgramOptionsHolder options(argc, argv, hr);
+    if (FAILED(hr))
+    {
         printf("CPrefs::CPrefs constructor failed: hr = 0x%08x\n", hr);
         return -__LINE__;
     }
@@ -69,13 +67,11 @@ int do_everything(int argc, LPCWSTR argv[]) {
     if (S_FALSE == hr) // nothing to do
         return 0;
 
-    UINT32 nFrames = 0;
+    UINT32 frames = LoopbackCapture(options._mmDevice, options._file, options._period);
 
-    LoopbackCapture(prefs.m_pMMDevice, prefs.m_hFile, &nFrames);
-    
     // everything went well... fixup the fact chunk in the file
-    MMRESULT result = mmioClose(prefs.m_hFile, 0);
-    prefs.m_hFile = NULL;
+    MMRESULT result = mmioClose(options._file, 0);
+    options._file = nullptr;
     if (MMSYSERR_NOERROR != result) {
         printf("mmioClose failed: MMSYSERR = %u\n", result);
         return -__LINE__;
@@ -83,16 +79,16 @@ int do_everything(int argc, LPCWSTR argv[]) {
 
     // reopen the file in read/write mode
     MMIOINFO mi = { 0 };
-    prefs.m_hFile = mmioOpen(const_cast<LPWSTR>(prefs.m_szFilename), &mi, MMIO_READWRITE);
-    if (NULL == prefs.m_hFile) {
-        printf("mmioOpen(\"%ls\", ...) failed. wErrorRet == %u\n", prefs.m_szFilename, mi.wErrorRet);
+    options._file = mmioOpen(const_cast<LPWSTR>(options._filename), &mi, MMIO_READWRITE);
+    if (nullptr == options._file) {
+        printf("mmioOpen(\"%ls\", ...) failed. wErrorRet == %u\n", options._filename, mi.wErrorRet);
         return -__LINE__;
     }
 
     // descend into the RIFF/WAVE chunk
     MMCKINFO ckRIFF = { 0 };
     ckRIFF.ckid = MAKEFOURCC('W', 'A', 'V', 'E'); // this is right for mmioDescend
-    result = mmioDescend(prefs.m_hFile, &ckRIFF, NULL, MMIO_FINDRIFF);
+    result = mmioDescend(options._file, &ckRIFF, nullptr, MMIO_FINDRIFF);
     if (MMSYSERR_NOERROR != result) {
         printf("mmioDescend(\"WAVE\") failed: MMSYSERR = %u\n", result);
         return -__LINE__;
@@ -101,32 +97,29 @@ int do_everything(int argc, LPCWSTR argv[]) {
     // descend into the fact chunk
     MMCKINFO ckFact = { 0 };
     ckFact.ckid = MAKEFOURCC('f', 'a', 'c', 't');
-    result = mmioDescend(prefs.m_hFile, &ckFact, &ckRIFF, MMIO_FINDCHUNK);
+    result = mmioDescend(options._file, &ckFact, &ckRIFF, MMIO_FINDCHUNK);
     if (MMSYSERR_NOERROR != result) {
         printf("mmioDescend(\"fact\") failed: MMSYSERR = %u\n", result);
         return -__LINE__;
     }
 
     // write the correct data to the fact chunk
-    LONG lBytesWritten = mmioWrite(
-        prefs.m_hFile,
-        reinterpret_cast<PCHAR>(&nFrames),
-        sizeof(nFrames)
-        );
-    if (lBytesWritten != sizeof(nFrames)) {
-        printf("Updating the fact chunk wrote %u bytes; expected %u\n", lBytesWritten, (UINT32)sizeof(nFrames));
+    LONG lBytesWritten = mmioWrite(options._file, reinterpret_cast<PCHAR>(&frames), sizeof(frames));
+    if (lBytesWritten != sizeof(frames))
+    {
+        printf("Updating the fact chunk wrote %u bytes; expected %u\n", lBytesWritten, (UINT32)sizeof(frames));
         return -__LINE__;
     }
 
     // ascend out of the fact chunk
-    result = mmioAscend(prefs.m_hFile, &ckFact, 0);
-    if (MMSYSERR_NOERROR != result) {
+    result = mmioAscend(options._file, &ckFact, 0);
+    if (MMSYSERR_NOERROR != result)
+    {
         printf("mmioAscend(\"fact\") failed: MMSYSERR = %u\n", result);
         return -__LINE__;
     }
 
-    // let prefs' destructor call mmioClose
-
+    // let options' destructor call mmioClose
     return 0;
 }
 
@@ -134,10 +127,10 @@ int do_everything(int argc, LPCWSTR argv[]) {
 #define DEFAULT_FILE L"loopback-capture.wav"
 
 void usage(LPCWSTR exe);
-HRESULT get_default_device(IMMDevice **ppMMDevice);
+HRESULT get_default_device(IMMDevice **pmmDevice);
 HRESULT list_devices();
-HRESULT get_specific_device(LPCWSTR szLongName, IMMDevice **ppMMDevice);
-HRESULT open_file(LPCWSTR szFileName, HMMIO *phFile);
+HRESULT get_specific_device(LPCWSTR szLongName, IMMDevice **pmmDevice);
+HRESULT open_file(LPCWSTR szFileName, HMMIO *pfile);
 
 void usage(LPCWSTR exe) {
     printf(
@@ -148,131 +141,140 @@ void usage(LPCWSTR exe) {
         "    -? prints this message.\n"
         "    --list-devices displays the long names of all active playback devices.\n"
         "    --device captures from the specified device (default if omitted)\n"
-        "    --file saves the output to a file (%ls if omitted)\n"
-        "    --int-16 attempts to coerce data to 16-bit integer format\n",
+        "    --file saves the output to a file (%ls if omitted)\n",
         exe, exe, exe, DEFAULT_FILE
         );
 }
 
-CPrefs::CPrefs(int argc, LPCWSTR argv[], HRESULT &hr)
-: m_pMMDevice(NULL)
-, m_hFile(NULL)
-, m_pwfx(NULL)
-, m_szFilename(NULL)
+ProgramOptionsHolder::ProgramOptionsHolder(int argc, LPCWSTR argv[], HRESULT &hr) : _mmDevice(nullptr), _file(nullptr),
+    _waveformat(nullptr), _filename(DEFAULT_FILE)
 {
-    switch (argc) {
-    case 2:
-        if (0 == _wcsicmp(argv[1], L"-?") || 0 == _wcsicmp(argv[1], L"/?")) {
-            // print usage but don't actually capture
-            hr = S_FALSE;
-            usage(argv[0]);
-            return;
-        }
-        else if (0 == _wcsicmp(argv[1], L"--list-devices")) {
-            // list the devices but don't actually capture
-            hr = list_devices();
-
-            // don't actually play
-            if (S_OK == hr) {
+    switch (argc)
+    {
+        case 2:
+            if (_wcsicmp(argv[1], L"-?") == 0 || _wcsicmp(argv[1], L"/?") == 0)
+            {
+                // print usage but don't actually capture
                 hr = S_FALSE;
+                usage(argv[0]);
                 return;
             }
-        }
-        // intentional fallthrough
+            else if (_wcsicmp(argv[1], L"--list-devices") == 0)
+            {
+                // list the devices but don't actually capture
+                hr = list_devices();
 
-    default:
-        // loop through arguments and parse them
-        for (int i = 1; i < argc; i++) {
-
-            // --device
-            if (0 == _wcsicmp(argv[i], L"--device")) {
-                if (NULL != m_pMMDevice) {
-                    printf("Only one --device switch is allowed\n");
-                    hr = E_INVALIDARG;
+                // don't actually play
+                if (S_OK == hr)
+                {
+                    hr = S_FALSE;
                     return;
                 }
-
-                if (i++ == argc) {
-                    printf("--device switch requires an argument\n");
-                    hr = E_INVALIDARG;
-                    return;
-                }
-
-                hr = get_specific_device(argv[i], &m_pMMDevice);
-                if (FAILED(hr)) {
-                    return;
-                }
-
-                continue;
             }
+            // intentional fall through
+        default:
+            // loop through arguments and parse them
+            for (int i = 1; i < argc; i++)
+            {
+                // --device
+                if (_wcsicmp(argv[i], L"--device") == 0)
+                {
+                    if (_mmDevice != nullptr)
+                    {
+                        printf("Only one --device switch is allowed\n");
+                        hr = E_INVALIDARG;
+                        return;
+                    }
 
-            // --file
-            if (0 == _wcsicmp(argv[i], L"--file")) {
-                if (NULL != m_szFilename) {
-                    printf("Only one --file switch is allowed\n");
-                    hr = E_INVALIDARG;
-                    return;
+                    if (i++ == argc)
+                    {
+                        printf("--device switch requires an argument\n");
+                        hr = E_INVALIDARG;
+                        return;
+                    }
+
+                    hr = get_specific_device(argv[i], &_mmDevice);
+                    if (FAILED(hr))
+                        return;
+
+                    continue;
                 }
 
-                if (i++ == argc) {
-                    printf("--file switch requires an argument\n");
-                    hr = E_INVALIDARG;
-                    return;
+                // --file
+                if (_wcsicmp(argv[i], L"--file") == 0)
+                {
+                    if (_filename != nullptr)
+                    {
+                        printf("Only one --file switch is allowed\n");
+                        hr = E_INVALIDARG;
+                        return;
+                    }
+
+                    if (i++ == argc)
+                    {
+                        printf("--file switch requires an argument\n");
+                        hr = E_INVALIDARG;
+                        return;
+                    }
+
+                    _filename = argv[i];
+                    continue;
                 }
 
-                m_szFilename = argv[i];
-                continue;
-            }
+                // --period
+                if (_wcsicmp(argv[i], L"--period") == 0)
+                {
+                    if (i++ == argc)
+                    {
+                        printf("--file switch requires an argument\n");
+                        hr = E_INVALIDARG;
+                        return;
+                    }
 
-            printf("Invalid argument %ls\n", argv[i]);
-            hr = E_INVALIDARG;
-            return;
-        }
+                    _period = _wtoi(argv[i]);
+                    continue;
+                }
 
-        // open default device if not specified
-        if (NULL == m_pMMDevice) {
-            hr = get_default_device(&m_pMMDevice);
-            if (FAILED(hr)) {
+                printf("Invalid argument %ls\n", argv[i]);
+                hr = E_INVALIDARG;
                 return;
             }
-        }
 
-        // if no filename specified, use default
-        if (NULL == m_szFilename) {
-            m_szFilename = DEFAULT_FILE;
-        }
+            // open default device if not specified
+            if (_mmDevice == nullptr)
+            {
+                hr = get_default_device(&_mmDevice);
+                if (FAILED(hr))
+                    return;
+            }
 
-        // open file
-        hr = open_file(m_szFilename, &m_hFile);
-        if (FAILED(hr)) {
-            return;
-        }
+            // open file
+            hr = open_file(_filename, &_file);
+            if (FAILED(hr))
+                return;
     }
 }
 
-CPrefs::~CPrefs() {
-    if (NULL != m_pMMDevice) {
-        m_pMMDevice->Release();
-    }
+ProgramOptionsHolder::~ProgramOptionsHolder() {
+    if (nullptr != _mmDevice)
+        _mmDevice->Release();
 
-    if (NULL != m_hFile) {
-        mmioClose(m_hFile, 0);
-    }
+    if (nullptr != _file)
+        mmioClose(_file, 0);
 
-    if (NULL != m_pwfx) {
-        CoTaskMemFree(m_pwfx);
-    }
+    if (nullptr != _waveformat)
+        CoTaskMemFree(_waveformat);
 }
 
-HRESULT get_default_device(IMMDevice **ppMMDevice) {
+HRESULT get_default_device(IMMDevice** pmmDevice) {
     HRESULT hr = S_OK;
-    IMMDeviceEnumerator *pMMDeviceEnumerator;
+    IMMDeviceEnumerator *mmDeviceEnumerator;
 
     // activate a device enumerator
     hr = CoCreateInstance(
-        __uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
+        __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
         __uuidof(IMMDeviceEnumerator),
-        (void**)&pMMDeviceEnumerator
+        (void**)&mmDeviceEnumerator
         );
     if (FAILED(hr)) {
         printf("CoCreateInstance(IMMDeviceEnumerator) failed: hr = 0x%08x\n", hr);
@@ -280,8 +282,8 @@ HRESULT get_default_device(IMMDevice **ppMMDevice) {
     }
 
     // get the default render endpoint
-    hr = pMMDeviceEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, ppMMDevice);
-    pMMDeviceEnumerator->Release();
+    hr = mmDeviceEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, pmmDevice);
+    mmDeviceEnumerator->Release();
     if (FAILED(hr)) {
         printf("IMMDeviceEnumerator::GetDefaultAudioEndpoint failed: hr = 0x%08x\n", hr);
         return hr;
@@ -294,56 +296,56 @@ HRESULT list_devices() {
     HRESULT hr = S_OK;
 
     // get an enumerator
-    IMMDeviceEnumerator *pMMDeviceEnumerator;
+    IMMDeviceEnumerator *mmDeviceEnumerator;
 
     hr = CoCreateInstance(
-        __uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
+        __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
         __uuidof(IMMDeviceEnumerator),
-        (void**)&pMMDeviceEnumerator
+        (void**)&mmDeviceEnumerator
         );
     if (FAILED(hr)) {
         printf("CoCreateInstance(IMMDeviceEnumerator) failed: hr = 0x%08x\n", hr);
         return hr;
     }
 
-    IMMDeviceCollection *pMMDeviceCollection;
+    IMMDeviceCollection *mmDeviceCollection;
 
     // get all the active render endpoints
-    hr = pMMDeviceEnumerator->EnumAudioEndpoints(
-        eRender, DEVICE_STATE_ACTIVE, &pMMDeviceCollection
+    hr = mmDeviceEnumerator->EnumAudioEndpoints(
+        eRender, DEVICE_STATE_ACTIVE, &mmDeviceCollection
         );
-    pMMDeviceEnumerator->Release();
+    mmDeviceEnumerator->Release();
     if (FAILED(hr)) {
         printf("IMMDeviceEnumerator::EnumAudioEndpoints failed: hr = 0x%08x\n", hr);
         return hr;
     }
 
     UINT count;
-    hr = pMMDeviceCollection->GetCount(&count);
+    hr = mmDeviceCollection->GetCount(&count);
     if (FAILED(hr)) {
-        pMMDeviceCollection->Release();
+        mmDeviceCollection->Release();
         printf("IMMDeviceCollection::GetCount failed: hr = 0x%08x\n", hr);
         return hr;
     }
     printf("Active render endpoints found: %u\n", count);
 
     for (UINT i = 0; i < count; i++) {
-        IMMDevice *pMMDevice;
+        IMMDevice *mmDevice;
 
         // get the "n"th device
-        hr = pMMDeviceCollection->Item(i, &pMMDevice);
+        hr = mmDeviceCollection->Item(i, &mmDevice);
         if (FAILED(hr)) {
-            pMMDeviceCollection->Release();
+            mmDeviceCollection->Release();
             printf("IMMDeviceCollection::Item failed: hr = 0x%08x\n", hr);
             return hr;
         }
 
         // open the property store on that device
         IPropertyStore *pPropertyStore;
-        hr = pMMDevice->OpenPropertyStore(STGM_READ, &pPropertyStore);
-        pMMDevice->Release();
+        hr = mmDevice->OpenPropertyStore(STGM_READ, &pPropertyStore);
+        mmDevice->Release();
         if (FAILED(hr)) {
-            pMMDeviceCollection->Release();
+            mmDeviceCollection->Release();
             printf("IMMDevice::OpenPropertyStore failed: hr = 0x%08x\n", hr);
             return hr;
         }
@@ -353,7 +355,7 @@ HRESULT list_devices() {
         hr = pPropertyStore->GetValue(PKEY_Device_FriendlyName, &pv);
         pPropertyStore->Release();
         if (FAILED(hr)) {
-            pMMDeviceCollection->Release();
+            mmDeviceCollection->Release();
             printf("IPropertyStore::GetValue failed: hr = 0x%08x\n", hr);
             return hr;
         }
@@ -362,7 +364,7 @@ HRESULT list_devices() {
             printf("PKEY_Device_FriendlyName variant type is %u - expected VT_LPWSTR", pv.vt);
 
             PropVariantClear(&pv);
-            pMMDeviceCollection->Release();
+            mmDeviceCollection->Release();
             return E_UNEXPECTED;
         }
 
@@ -370,66 +372,66 @@ HRESULT list_devices() {
 
         PropVariantClear(&pv);
     }
-    pMMDeviceCollection->Release();
+    mmDeviceCollection->Release();
 
     return S_OK;
 }
 
-HRESULT get_specific_device(LPCWSTR szLongName, IMMDevice **ppMMDevice) {
+HRESULT get_specific_device(LPCWSTR szLongName, IMMDevice** pmmDevice) {
     HRESULT hr = S_OK;
 
-    *ppMMDevice = NULL;
+    *pmmDevice = nullptr;
 
     // get an enumerator
-    IMMDeviceEnumerator *pMMDeviceEnumerator;
+    IMMDeviceEnumerator *mmDeviceEnumerator;
 
     hr = CoCreateInstance(
-        __uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
+        __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
         __uuidof(IMMDeviceEnumerator),
-        (void**)&pMMDeviceEnumerator
+        (void**)&mmDeviceEnumerator
         );
     if (FAILED(hr)) {
         printf("CoCreateInstance(IMMDeviceEnumerator) failed: hr = 0x%08x\n", hr);
         return hr;
     }
 
-    IMMDeviceCollection *pMMDeviceCollection;
+    IMMDeviceCollection *mmDeviceCollection;
 
     // get all the active render endpoints
-    hr = pMMDeviceEnumerator->EnumAudioEndpoints(
-        eRender, DEVICE_STATE_ACTIVE, &pMMDeviceCollection
+    hr = mmDeviceEnumerator->EnumAudioEndpoints(
+        eRender, DEVICE_STATE_ACTIVE, &mmDeviceCollection
         );
-    pMMDeviceEnumerator->Release();
+    mmDeviceEnumerator->Release();
     if (FAILED(hr)) {
         printf("IMMDeviceEnumerator::EnumAudioEndpoints failed: hr = 0x%08x\n", hr);
         return hr;
     }
 
     UINT count;
-    hr = pMMDeviceCollection->GetCount(&count);
+    hr = mmDeviceCollection->GetCount(&count);
     if (FAILED(hr)) {
-        pMMDeviceCollection->Release();
+        mmDeviceCollection->Release();
         printf("IMMDeviceCollection::GetCount failed: hr = 0x%08x\n", hr);
         return hr;
     }
 
     for (UINT i = 0; i < count; i++) {
-        IMMDevice *pMMDevice;
+        IMMDevice *mmDevice;
 
         // get the "n"th device
-        hr = pMMDeviceCollection->Item(i, &pMMDevice);
+        hr = mmDeviceCollection->Item(i, &mmDevice);
         if (FAILED(hr)) {
-            pMMDeviceCollection->Release();
+            mmDeviceCollection->Release();
             printf("IMMDeviceCollection::Item failed: hr = 0x%08x\n", hr);
             return hr;
         }
 
         // open the property store on that device
         IPropertyStore *pPropertyStore;
-        hr = pMMDevice->OpenPropertyStore(STGM_READ, &pPropertyStore);
+        hr = mmDevice->OpenPropertyStore(STGM_READ, &pPropertyStore);
         if (FAILED(hr)) {
-            pMMDevice->Release();
-            pMMDeviceCollection->Release();
+            mmDevice->Release();
+            mmDeviceCollection->Release();
             printf("IMMDevice::OpenPropertyStore failed: hr = 0x%08x\n", hr);
             return hr;
         }
@@ -439,8 +441,8 @@ HRESULT get_specific_device(LPCWSTR szLongName, IMMDevice **ppMMDevice) {
         hr = pPropertyStore->GetValue(PKEY_Device_FriendlyName, &pv);
         pPropertyStore->Release();
         if (FAILED(hr)) {
-            pMMDevice->Release();
-            pMMDeviceCollection->Release();
+            mmDevice->Release();
+            mmDeviceCollection->Release();
             printf("IPropertyStore::GetValue failed: hr = 0x%08x\n", hr);
             return hr;
         }
@@ -449,33 +451,33 @@ HRESULT get_specific_device(LPCWSTR szLongName, IMMDevice **ppMMDevice) {
             printf("PKEY_Device_FriendlyName variant type is %u - expected VT_LPWSTR", pv.vt);
 
             PropVariantClear(&pv);
-            pMMDevice->Release();
-            pMMDeviceCollection->Release();
+            mmDevice->Release();
+            mmDeviceCollection->Release();
             return E_UNEXPECTED;
         }
 
         // is it a match?
         if (0 == _wcsicmp(pv.pwszVal, szLongName)) {
             // did we already find it?
-            if (NULL == *ppMMDevice) {
-                *ppMMDevice = pMMDevice;
-                pMMDevice->AddRef();
+            if (nullptr == *pmmDevice) {
+                *pmmDevice = mmDevice;
+                mmDevice->AddRef();
             }
             else {
                 printf("Found (at least) two devices named %ls\n", szLongName);
                 PropVariantClear(&pv);
-                pMMDevice->Release();
-                pMMDeviceCollection->Release();
+                mmDevice->Release();
+                mmDeviceCollection->Release();
                 return E_UNEXPECTED;
             }
         }
 
-        pMMDevice->Release();
+        mmDevice->Release();
         PropVariantClear(&pv);
     }
-    pMMDeviceCollection->Release();
+    mmDeviceCollection->Release();
 
-    if (NULL == *ppMMDevice) {
+    if (nullptr == *pmmDevice) {
         printf("Could not find a device named %ls\n", szLongName);
         return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     }
@@ -483,10 +485,11 @@ HRESULT get_specific_device(LPCWSTR szLongName, IMMDevice **ppMMDevice) {
     return S_OK;
 }
 
-HRESULT open_file(LPCWSTR szFileName, HMMIO *phFile) {
+HRESULT open_file(LPCWSTR szFileName, HMMIO* pfile)
+{
     MMIOINFO mi = { 0 };
 
-    *phFile = mmioOpen(
+    *pfile = mmioOpen(
         // some flags cause mmioOpen write to this buffer
         // but not any that we're using
         const_cast<LPWSTR>(szFileName),
@@ -494,7 +497,7 @@ HRESULT open_file(LPCWSTR szFileName, HMMIO *phFile) {
         MMIO_WRITE | MMIO_CREATE
         );
 
-    if (NULL == *phFile) {
+    if (nullptr == *pfile) {
         printf("mmioOpen(\"%ls\", ...) failed. wErrorRet == %u\n", szFileName, mi.wErrorRet);
         return E_FAIL;
     }
@@ -502,14 +505,14 @@ HRESULT open_file(LPCWSTR szFileName, HMMIO *phFile) {
     return S_OK;
 }
 
-HRESULT LoopbackCapture(IMMDevice *pMMDevice,HMMIO hFile, PUINT32 pnFrames)
+UINT32 LoopbackCapture(IMMDevice* mmDevice, HMMIO file, int secs)
 {
-    time_t start = time(NULL);
+    time_t startTime = time(nullptr);
     HRESULT hr; 
 
     // activate an IAudioClient
     IAudioClient* audioClient;
-    hr = pMMDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, NULL, (void**)&audioClient);
+    hr = mmDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&audioClient);
     if (FAILED(hr)) {
         printf("IMMDevice::Activate(IAudioClient) failed: hr = 0x%08x", hr);
         return hr;
@@ -517,7 +520,7 @@ HRESULT LoopbackCapture(IMMDevice *pMMDevice,HMMIO hFile, PUINT32 pnFrames)
 
     // get the default device periodicity
     REFERENCE_TIME hnsDefaultDevicePeriod;
-    hr = audioClient->GetDevicePeriod(&hnsDefaultDevicePeriod, NULL);
+    hr = audioClient->GetDevicePeriod(&hnsDefaultDevicePeriod, nullptr);
     if (FAILED(hr)) {
         printf("IAudioClient::GetDevicePeriod failed: hr = 0x%08x\n", hr);
         audioClient->Release();
@@ -525,7 +528,7 @@ HRESULT LoopbackCapture(IMMDevice *pMMDevice,HMMIO hFile, PUINT32 pnFrames)
     }
 
     // get the default device format
-    WAVEFORMATEX *waveform;
+    WAVEFORMATEX* waveform;
     hr = audioClient->GetMixFormat(&waveform);
     if (FAILED(hr)) {
         printf("IAudioClient::GetMixFormat failed: hr = 0x%08x\n", hr);
@@ -565,13 +568,11 @@ HRESULT LoopbackCapture(IMMDevice *pMMDevice,HMMIO hFile, PUINT32 pnFrames)
 
     MMCKINFO ckRIFF = { 0 };
     MMCKINFO ckData = { 0 };
-    hr = WriteWaveHeader(hFile, waveform, &ckRIFF, &ckData);
+    hr = WriteWaveHeader(file, waveform, &ckRIFF, &ckData);
 
     // create a periodic waitable timer
-    HANDLE hWakeUp = CreateWaitableTimer(NULL, FALSE, NULL);
+    HANDLE hWakeUp = CreateWaitableTimer(nullptr, FALSE, nullptr);
     UINT32 nBlockAlign = waveform->nBlockAlign;
-
-    *pnFrames = 0;
 
     // call IAudioClient::Initialize
     // note that AUDCLNT_STREAMFLAGS_LOOPBACK and AUDCLNT_STREAMFLAGS_EVENTCALLBACK
@@ -596,7 +597,7 @@ HRESULT LoopbackCapture(IMMDevice *pMMDevice,HMMIO hFile, PUINT32 pnFrames)
     // register with MMCSS
     DWORD nTaskIndex = 0;
     HANDLE hTask = AvSetMmThreadCharacteristics(L"Capture", &nTaskIndex);
-    if (NULL == hTask) {
+    if (nullptr == hTask) {
         DWORD dwErr = GetLastError();
         printf("AvSetMmThreadCharacteristics failed: last error = %u\n", dwErr);
         audioCaptureClient->Release();
@@ -609,7 +610,7 @@ HRESULT LoopbackCapture(IMMDevice *pMMDevice,HMMIO hFile, PUINT32 pnFrames)
     LARGE_INTEGER liFirstFire;
     liFirstFire.QuadPart = -hnsDefaultDevicePeriod / 2; // negative means relative time
     LONG lTimeBetweenFires = (LONG)hnsDefaultDevicePeriod / 2 / (10 * 1000); // convert to milliseconds
-    BOOL bOK = SetWaitableTimer(hWakeUp, &liFirstFire, lTimeBetweenFires, NULL, NULL, FALSE );
+    BOOL bOK = SetWaitableTimer(hWakeUp, &liFirstFire, lTimeBetweenFires, nullptr, nullptr, FALSE );
     if (!bOK) {
         DWORD dwErr = GetLastError();
         printf("SetWaitableTimer failed: last error = %u\n", dwErr);
@@ -626,7 +627,9 @@ HRESULT LoopbackCapture(IMMDevice *pMMDevice,HMMIO hFile, PUINT32 pnFrames)
     // loopback capture loop
     DWORD dwWaitResult;
 
-    for (UINT32 passes = 0; ; passes++) {
+    UINT32 frames = 0;
+    for (UINT32 passes = 0; ; passes++)
+    {
         // drain data while it is available
         UINT32 nextPacketSize;
         for (hr = audioCaptureClient->GetNextPacketSize(&nextPacketSize);
@@ -638,9 +641,9 @@ HRESULT LoopbackCapture(IMMDevice *pMMDevice,HMMIO hFile, PUINT32 pnFrames)
             UINT32 framesToRead;
             DWORD dwFlags;
 
-            hr = audioCaptureClient->GetBuffer(&data, &framesToRead, &dwFlags, NULL, NULL);
+            hr = audioCaptureClient->GetBuffer(&data, &framesToRead, &dwFlags, nullptr, nullptr);
             if (FAILED(hr)) {
-                printf("IAudioCaptureClient::GetBuffer failed on pass %u after %u frames: hr = 0x%08x\n", passes, *pnFrames, hr);
+                printf("IAudioCaptureClient::GetBuffer failed on pass %u after %u frames: hr = 0x%08x\n", passes, frames, hr);
                 audioClient->Stop();
                 CancelWaitableTimer(hWakeUp);
                 AvRevertMmThreadCharacteristics(hTask);
@@ -654,7 +657,7 @@ HRESULT LoopbackCapture(IMMDevice *pMMDevice,HMMIO hFile, PUINT32 pnFrames)
             if (dwFlags == AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY)
                 ;
             else if (0 != dwFlags) {
-                printf("IAudioCaptureClient::GetBuffer set flags to 0x%08x on pass %u after %u frames\n", dwFlags, passes, *pnFrames);
+                printf("IAudioCaptureClient::GetBuffer set flags to 0x%08x on pass %u after %u frames\n", dwFlags, passes, frames);
                 audioClient->Stop();
                 CancelWaitableTimer(hWakeUp);
                 AvRevertMmThreadCharacteristics(hTask);
@@ -665,7 +668,7 @@ HRESULT LoopbackCapture(IMMDevice *pMMDevice,HMMIO hFile, PUINT32 pnFrames)
             }
 
             if (0 == framesToRead) {
-                printf("IAudioCaptureClient::GetBuffer said to read 0 frames on pass %u after %u frames\n", passes, *pnFrames);
+                printf("IAudioCaptureClient::GetBuffer said to read 0 frames on pass %u after %u frames\n", passes, frames);
                 audioClient->Stop();
                 CancelWaitableTimer(hWakeUp);
                 AvRevertMmThreadCharacteristics(hTask);
@@ -677,9 +680,9 @@ HRESULT LoopbackCapture(IMMDevice *pMMDevice,HMMIO hFile, PUINT32 pnFrames)
 
             LONG lBytesToWrite = framesToRead * nBlockAlign;
 #pragma prefast(suppress: __WARNING_INCORRECT_ANNOTATION, "IAudioCaptureClient::GetBuffer SAL annotation implies a 1-byte buffer")
-            LONG lBytesWritten = mmioWrite(hFile, reinterpret_cast<PCHAR>(data), lBytesToWrite);
+            LONG lBytesWritten = mmioWrite(file, reinterpret_cast<PCHAR>(data), lBytesToWrite);
             if (lBytesToWrite != lBytesWritten) {
-                printf("mmioWrite wrote %u bytes on pass %u after %u frames: expected %u bytes\n", lBytesWritten, passes, *pnFrames, lBytesToWrite);
+                printf("mmioWrite wrote %u bytes on pass %u after %u frames: expected %u bytes\n", lBytesWritten, passes, frames, lBytesToWrite);
                 audioClient->Stop();
                 CancelWaitableTimer(hWakeUp);
                 AvRevertMmThreadCharacteristics(hTask);
@@ -689,36 +692,36 @@ HRESULT LoopbackCapture(IMMDevice *pMMDevice,HMMIO hFile, PUINT32 pnFrames)
                 return E_UNEXPECTED;
             }
 
-            *pnFrames += framesToRead;
+            frames += framesToRead;
 
             hr = audioCaptureClient->ReleaseBuffer(framesToRead);
         }
 
         dwWaitResult = WaitForSingleObject(hWakeUp, INFINITE);
 
-        if (time(NULL) - start > 5)
+        if (time(nullptr) - startTime > secs)
             break;
     }
 
-    hr = FinishWaveFile(hFile, &ckData, &ckRIFF);
-
+    FinishWaveFile(file, &ckData, &ckRIFF);
     audioClient->Stop();
     CancelWaitableTimer(hWakeUp);
     AvRevertMmThreadCharacteristics(hTask);
     audioCaptureClient->Release();
     CloseHandle(hWakeUp);
     audioClient->Release();
-    return hr;
+    return frames;
 }
 
-HRESULT WriteWaveHeader(HMMIO hFile, LPCWAVEFORMATEX pwfx, MMCKINFO *pckRIFF, MMCKINFO *pckData) {
+HRESULT WriteWaveHeader(HMMIO file, LPCWAVEFORMATEX pwfx, MMCKINFO *packetRIFF, MMCKINFO *packetData)
+{
     MMRESULT result;
 
     // make a RIFF/WAVE chunk
-    pckRIFF->ckid = MAKEFOURCC('R', 'I', 'F', 'F');
-    pckRIFF->fccType = MAKEFOURCC('W', 'A', 'V', 'E');
+    packetRIFF->ckid = MAKEFOURCC('R', 'I', 'F', 'F');
+    packetRIFF->fccType = MAKEFOURCC('W', 'A', 'V', 'E');
 
-    result = mmioCreateChunk(hFile, pckRIFF, MMIO_CREATERIFF);
+    result = mmioCreateChunk(file, packetRIFF, MMIO_CREATERIFF);
     if (MMSYSERR_NOERROR != result) {
         printf("mmioCreateChunk(\"RIFF/WAVE\") failed: MMRESULT = 0x%08x\n", result);
         return E_FAIL;
@@ -727,7 +730,7 @@ HRESULT WriteWaveHeader(HMMIO hFile, LPCWAVEFORMATEX pwfx, MMCKINFO *pckRIFF, MM
     // make a 'fmt ' chunk (within the RIFF/WAVE chunk)
     MMCKINFO chunk;
     chunk.ckid = MAKEFOURCC('f', 'm', 't', ' ');
-    result = mmioCreateChunk(hFile, &chunk, 0);
+    result = mmioCreateChunk(file, &chunk, 0);
     if (MMSYSERR_NOERROR != result) {
         printf("mmioCreateChunk(\"fmt \") failed: MMRESULT = 0x%08x\n", result);
         return E_FAIL;
@@ -737,7 +740,7 @@ HRESULT WriteWaveHeader(HMMIO hFile, LPCWAVEFORMATEX pwfx, MMCKINFO *pckRIFF, MM
     LONG lBytesInWfx = sizeof(WAVEFORMATEX)+pwfx->cbSize;
     LONG lBytesWritten =
         mmioWrite(
-        hFile,
+        file,
         reinterpret_cast<PCHAR>(const_cast<LPWAVEFORMATEX>(pwfx)),
         lBytesInWfx
         );
@@ -747,7 +750,7 @@ HRESULT WriteWaveHeader(HMMIO hFile, LPCWAVEFORMATEX pwfx, MMCKINFO *pckRIFF, MM
     }
 
     // ascend from the 'fmt ' chunk
-    result = mmioAscend(hFile, &chunk, 0);
+    result = mmioAscend(file, &chunk, 0);
     if (MMSYSERR_NOERROR != result) {
         printf("mmioAscend(\"fmt \" failed: MMRESULT = 0x%08x\n", result);
         return E_FAIL;
@@ -755,7 +758,7 @@ HRESULT WriteWaveHeader(HMMIO hFile, LPCWAVEFORMATEX pwfx, MMCKINFO *pckRIFF, MM
 
     // make a 'fact' chunk whose data is (DWORD)0
     chunk.ckid = MAKEFOURCC('f', 'a', 'c', 't');
-    result = mmioCreateChunk(hFile, &chunk, 0);
+    result = mmioCreateChunk(file, &chunk, 0);
     if (MMSYSERR_NOERROR != result) {
         printf("mmioCreateChunk(\"fmt \") failed: MMRESULT = 0x%08x\n", result);
         return E_FAIL;
@@ -764,22 +767,22 @@ HRESULT WriteWaveHeader(HMMIO hFile, LPCWAVEFORMATEX pwfx, MMCKINFO *pckRIFF, MM
     // write (DWORD)0 to it
     // this is cleaned up later
     DWORD frames = 0;
-    lBytesWritten = mmioWrite(hFile, reinterpret_cast<PCHAR>(&frames), sizeof(frames));
+    lBytesWritten = mmioWrite(file, reinterpret_cast<PCHAR>(&frames), sizeof(frames));
     if (lBytesWritten != sizeof(frames)) {
         printf("mmioWrite(fact data) wrote %u bytes; expected %u bytes\n", lBytesWritten, (UINT32)sizeof(frames));
         return E_FAIL;
     }
 
     // ascend from the 'fact' chunk
-    result = mmioAscend(hFile, &chunk, 0);
+    result = mmioAscend(file, &chunk, 0);
     if (MMSYSERR_NOERROR != result) {
         printf("mmioAscend(\"fact\" failed: MMRESULT = 0x%08x\n", result);
         return E_FAIL;
     }
 
     // make a 'data' chunk and leave the data pointer there
-    pckData->ckid = MAKEFOURCC('d', 'a', 't', 'a');
-    result = mmioCreateChunk(hFile, pckData, 0);
+    packetData->ckid = MAKEFOURCC('d', 'a', 't', 'a');
+    result = mmioCreateChunk(file, packetData, 0);
     if (MMSYSERR_NOERROR != result) {
         printf("mmioCreateChunk(\"data\") failed: MMRESULT = 0x%08x\n", result);
         return E_FAIL;
@@ -788,16 +791,17 @@ HRESULT WriteWaveHeader(HMMIO hFile, LPCWAVEFORMATEX pwfx, MMCKINFO *pckRIFF, MM
     return S_OK;
 }
 
-HRESULT FinishWaveFile(HMMIO hFile, MMCKINFO *pckRIFF, MMCKINFO *pckData) {
+HRESULT FinishWaveFile(HMMIO file, MMCKINFO* packetRIFF, MMCKINFO* packetData)
+{
     MMRESULT result;
 
-    result = mmioAscend(hFile, pckData, 0);
+    result = mmioAscend(file, packetData, 0);
     if (MMSYSERR_NOERROR != result) {
         printf("mmioAscend(\"data\" failed: MMRESULT = 0x%08x\n", result);
         return E_FAIL;
     }
 
-    result = mmioAscend(hFile, pckRIFF, 0);
+    result = mmioAscend(file, packetRIFF, 0);
     if (MMSYSERR_NOERROR != result) {
         printf("mmioAscend(\"RIFF/WAVE\" failed: MMRESULT = 0x%08x\n", result);
         return E_FAIL;
