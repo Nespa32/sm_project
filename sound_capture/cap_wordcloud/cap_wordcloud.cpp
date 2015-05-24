@@ -140,9 +140,9 @@ void CaptureSoundFor(int secs, std::string destfile)
 
     waveInClose(hWaveIn);
 
+#ifndef __USE_FLAC__
     SaveWavFile(destfile, &waveHdr);
-
-#ifdef __USE_FLAC__
+#else // #ifdef __USE_FLAC__
     SaveWavFile("temp.wav", &waveHdr);
     ConvertWavToFlac("temp.wav", destfile);
 #endif
