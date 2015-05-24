@@ -43,8 +43,7 @@ def main():
 old_wc = None
 
 def generateImage():
-    with open(sys.argv[1]) as f: 
-        text = f.read()
+    text = sys.stdin.readline() # will stall until we get our line, which is fine
 
     wc = WordCloud(font_path='C:\Windows\Fonts\Verdana.ttf', width=750, height=400).generate(text)
     wc = wc.recolor(color_func=grey_color_func, random_state=3)
