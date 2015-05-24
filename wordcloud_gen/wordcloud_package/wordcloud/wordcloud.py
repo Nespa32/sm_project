@@ -101,8 +101,7 @@ class WordCloud(object):
             stopwords = STOPWORDS
         if font_path is None:
             font_path = FONT_PATH
-			
-		print font_path
+
         self.font_path = font_path
         self.width = width
         self.height = height
@@ -150,10 +149,6 @@ class WordCloud(object):
             random_state = self.random_state
         else:
             random_state = Random()
-
-        if len(words) <= 0:
-            print("We need at least 1 word to plot a word cloud, got %d."
-                  % len(words))
 
         if self.mask is not None:
             width = self.mask.shape[1]
@@ -294,7 +289,11 @@ class WordCloud(object):
 
         words = sorted(d3.items(), key=item1, reverse=True)
         words = words[:self.max_words]
-        maximum = float(max(d3.values()))
+        if len(d3.values()) > 0: # check in case there are no words
+            maximum = float(max(d3.values()))
+        else:
+            maximum = 1.0 # avoid by-zero division
+
         for i, (word, count) in enumerate(words):
             words[i] = word, count / maximum
 
