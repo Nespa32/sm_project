@@ -11,8 +11,6 @@ sound_capture_loopback/sound_capture_loopback/Debug/*
 *.opensdf
 build/*.json
 build/*.wav
-build/raw_text.txt
-build/text_cache.txt
-build/text_feed.txt
-build/wordcloud_text.txt
 *.class
+wordcloud_gen/wordcloud_package/build/*
+wordcloud_gen/wordcloud_package/wordcloud/*.c
