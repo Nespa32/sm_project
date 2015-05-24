@@ -1,8 +1,9 @@
 
 #include <cstdio>
-#include <thread>
 
 #include <windows.h>
+#include <string>
+#include <time.h>
 
 #include <fstream>
 #include <cstdlib>
@@ -42,15 +43,22 @@ static void FlacProgressCallback(const FLAC__StreamEncoder* encoder, FLAC__uint6
 
 int main(int argc, char** argv)
 {
-    if (argc < 3)
+    if (argc < 2)
     {
-        fprintf(stderr, "Missing args. Synthax: cap_wordcloud.exe $duration $destfile");
+        fprintf(stderr, "Missing args. Synthax: cap_wordcloud.exe $period");
         return 1;
     }
 
-    int duration = atoi(argv[1]);
-    std::string destfile = argv[2];
-    CaptureSoundFor(duration, destfile);
+    int period = atoi(argv[1]);
+    int fileID = 0;
+    for (;;)
+    {
+        std::string filename = "sound_capture" + std::to_string(fileID) + ".wav";
+        CaptureSoundFor(period, filename);
+        printf("%s\n", filename.c_str()); // print the filename out for the next program
+        fileID = ++fileID % 10; // no more than 10 sound files
+    }
+
     return 0;
 }
 
