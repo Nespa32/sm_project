@@ -4,6 +4,7 @@ sound_capture/Release/*
 sound_capture/cap_wordcloud/Release/*
 sound_capture/include/lib/*
 sound_capture/ipch/*
+sound_loopback_capture/Debug/*
 *.sdf
 *.suo
 *.opensdf
