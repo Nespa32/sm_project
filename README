@@ -2,16 +2,29 @@
 'cap_wordcloud' - an unoriginal attempt to combine 'sound capture' and 'wordclouds'
 
 What you'll need:
-- FLAC (https://xiph.org/flac/download.html)
+- Visual Studio 2013 (for compiling sound_capture_loopback/ and sound_capture/)
+- FLAC (https://xiph.org/flac/download.html) (in case you choose to enable FLAC in sound_capture/ .cpp files)
 - Nasm (because of FLAC - http://www.nasm.us/)
 - Ogg (because of FLAC - https://xiph.org/downloads/)
+- A lot of python libraries, many of which are in Anaconda distribution (http://continuum.io/downloads)
+- PIL/Pillow (https://pillow.readthedocs.org/)
+- Matplotlib (http://matplotlib.org/downloads.html)
+- Cython
+- Numpy
+- A Google API key, with Speech API access
+- Git Bash, in order to run .sh scripts in windows, and have access to cURL
 - A lot of patience (no link for this)
 
 How to setup:
 
+Compile executables for sound_capture_loopback/ and sound_capture/, move them to /build
+
+(if you were crazy enough to enable FLAC)
 After you've got FLAC somewhere on the system, copy libFLAC_dynamic.lib and libFLAC++_dynamic.lib
 to include\lib\ (lib\ might not exist yet, create it)
 Open the cap_wordcloud.sln, then Build|Build Solution, hope for the best
 After that's (hopefully) done, the executable in Debug/ (or Release/) can't run yet. Add libFLAC_dynamic.dll
 and libFLAC++_dynamic.dll to the folder.
+
+I might have forgotten some steps, but you should be able to run any .sh script now in build
 
