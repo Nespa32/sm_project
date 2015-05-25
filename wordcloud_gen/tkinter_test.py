@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import struct
 from PIL import Image, ImageTk
 import sys
+from threading import Thread
 
 from datetime import datetime
 
@@ -23,6 +24,7 @@ def main():
     global screensize
     global master
     global canvas
+    global stdin_input
 
     user32 = ctypes.windll.user32
     # (width, height)
@@ -30,20 +32,35 @@ def main():
 
     master = Tk()
     master.state('zoomed') # maximize the window
+    master.wm_title("TODO: Window Title")
 
     canvas = Canvas(master, width=screensize[0], height=screensize[1])
     canvas.pack()
-
+    
+    stdin_input = []
+    thread = Thread(target = thread_read_input)
+    thread.start()
+    
     img = generateImage()
     putImageOnCanvas(img)
     
     master.after(1000, doUpdate, img)
     master.mainloop()
+    
+    thread.join()
 
-old_wc = None
+def thread_read_input():
+    global stdin_input
+    
+    while True:
+        # will stall until we get our line, which is fine, it's a secondary thread
+        stdin_input.append(sys.stdin.readline())
 
 def generateImage():
-    text = sys.stdin.readline() # will stall until we get our line, which is fine
+    if len(stdin_input) > 0:
+        text = stdin_input[-1] # get the latest text
+    else:
+        text = ""
 
     wc = WordCloud(font_path='C:\Windows\Fonts\Verdana.ttf', width=750, height=400).generate(text)
     wc = wc.recolor(color_func=grey_color_func, random_state=3)
