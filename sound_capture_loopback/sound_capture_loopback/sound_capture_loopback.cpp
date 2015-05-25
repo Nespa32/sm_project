@@ -50,6 +50,7 @@ int main(int argc, char** argv)
 
         LoopbackCaptureFor(mmDevice, filename, period);
         printf("%s\n", filename.c_str());
+        fflush(stdout); // needs forced stdout flush, is part of a pipe
     }
 
     CoUninitialize();

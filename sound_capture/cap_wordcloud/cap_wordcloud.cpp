@@ -56,6 +56,7 @@ int main(int argc, char** argv)
         std::string filename = "sound_capture" + std::to_string(fileID) + ".wav";
         CaptureSoundFor(period, filename);
         printf("%s\n", filename.c_str()); // print the filename out for the next program
+        fflush(stdout); // needs forced stdout flush, is part of a pipe
         fileID = ++fileID % 10; // no more than 10 sound files
     }
 
