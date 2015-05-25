@@ -4,6 +4,8 @@ set -e
 
 # defines
 SOUND_CAPTURE_DIR="../sound_capture/Debug"
+SOUND_CAPTURE_LOOPBACK_DIR="../sound_capture_loopback/Debug"
+SOUND_CAPTURE_LOOPBACK_FIXUP_DIR="../sound_capture_loopback/"
 JSON_PARSER_DIR="../json_parser"
 TEXT_PROCESSING_DIR="../text_processing"
 WORDCLOUD_GEN_DIR="../wordcloud_gen"
