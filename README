@@ -13,6 +13,7 @@ What you'll need:
 - Numpy
 - A Google API key, with Speech API access
 - Git Bash, in order to run .sh scripts in windows, and have access to cURL
+- sox, must be added to $PATH (http://sox.sourceforge.net/)
 - A lot of patience (no link for this)
 
 How to setup:
