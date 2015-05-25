@@ -16,6 +16,6 @@ TEXT_TO_SPEECH_DIR="../text_to_speech_request"
     $TEXT_TO_SPEECH_DIR/curl_request.sh | \
     python $JSON_PARSER_DIR/json_parser.py | \
     python $TEXT_PROCESSING_DIR/text_preprocess.py | \
-    python $WORDCLOUD_GEN_DIR/tkinter_test.py
+    python $WORDCLOUD_GEN_DIR/tkinter_script.py
     
 
