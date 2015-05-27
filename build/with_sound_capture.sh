@@ -10,10 +10,10 @@ JSON_PARSER_DIR="../json_parser"
 TEXT_PROCESSING_DIR="../text_processing"
 WORDCLOUD_GEN_DIR="../wordcloud_gen"
 TESTING_DIR="../testing"
-TEXT_TO_SPEECH_DIR="../text_to_speech_request"
+SPEECH_TO_TEXT_DIR="../speech_to_text_request"
 
 ./$SOUND_CAPTURE_DIR/cap_wordcloud.exe 5 | \
-    $TEXT_TO_SPEECH_DIR/curl_request.sh | \
+    $SPEECH_TO_TEXT_DIR/curl_request.sh | \
     python $JSON_PARSER_DIR/json_parser.py | \
     python $TEXT_PROCESSING_DIR/text_preprocess.py | \
     python $WORDCLOUD_GEN_DIR/tkinter_script.py
